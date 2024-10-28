@@ -1,54 +1,62 @@
-// server.c
-#include "user_handler.h"
-#include "email_handler.h"
-#include "socket_utils.h"
-#include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
-void *handle_client(void *client_socket) {
-    int sock = *(int *)client_socket;
-    char buffer[1024];
+#define PORT 9000
 
-    // Handle client commands
-    while (recv(sock, buffer, sizeof(buffer), 0) > 0) {
-        if (strncmp(buffer, "SEND", 4) == 0) {
-            // Extract email details and store email
-            char sender[50], recipient[50], subject[100], body[1024];
-            sscanf(buffer + 5, "%[^|]|%[^|]|%[^|]|%s", sender, recipient, subject, body);
+void *handle_client(void *arg); // Forward declaration
 
-            struct Email email;
-            strcpy(email.sender, sender);
-            strcpy(email.recipient, recipient);
-            strcpy(email.subject, subject);
-            strcpy(email.body, body);
-            email.timestamp = time(NULL);
-
-            if (store_email(&email) == 0) {
-                send(sock, "ACK", 3, 0);
-            } else {
-                send(sock, "FAIL", 4, 0);
-            }
-        }
-        memset(buffer, 0, sizeof(buffer));
+int setup_server_socket(int port) {
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd == 0) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
     }
 
-    close(sock);
-    pthread_exit(NULL);
+    struct sockaddr_in address;
+    int opt = 1;
+    int addrlen = sizeof(address);
+
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(port);
+
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        perror("Bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (listen(server_fd, 3) < 0) {
+        perror("Listen failed");
+        exit(EXIT_FAILURE);
+    }
+
+    return server_fd;
 }
 
 int main() {
-    int server_fd = setup_server_socket(8080);
-    struct sockaddr_in address;
-    int addrlen = sizeof(address);
+    int server_fd = setup_server_socket(PORT);
+    printf("Server is running on port %d\n", PORT);
 
     while (1) {
-        int new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen);
+        int *new_socket = malloc(sizeof(int)); // Allocate memory for the new socket
+        *new_socket = accept(server_fd, (struct sockaddr *)NULL, NULL);
+        if (*new_socket < 0) {
+            perror("Accept failed");
+            free(new_socket); // Free allocated memory
+            continue;
+        }
         pthread_t thread_id;
-        pthread_create(&thread_id, NULL, handle_client, (void *)&new_socket);
+        pthread_create(&thread_id, NULL, handle_client, new_socket);
+        pthread_detach(thread_id); // Detach the thread
     }
 
-    close(server_fd);
     return 0;
 }

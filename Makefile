@@ -1,10 +1,16 @@
 CC = gcc
-CFLAGS = -pthread
+CFLAGS = -Wall -Wextra -pthread
 
 all: server client
 
-server: server.c user_handler.c email_handler.c socket_utils.c
-    $(CC) $(CFLAGS) -o server server.c user_handler.c email_handler.c socket_utils.c -lssl -lcrypto
+server: server.o client_handler.o email_utils.o
+	$(CC) -o server server.o client_handler.o email_utils.o
 
-client: client.c socket_utils.c
-    $(CC) -o client client.c socket_utils.c
+client: client.o email_utils.o
+	$(CC) -o client client.o email_utils.o
+
+%.o: %.c
+	$(CC) -c $< $(CFLAGS)
+
+clean:
+	rm -f *.o server client
